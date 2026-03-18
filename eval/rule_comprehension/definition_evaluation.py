@@ -1,35 +1,85 @@
+import os
+import sys
+
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from llama_index.core import SimpleDirectoryReader
 from llama_index.multi_modal_llms.replicate import ReplicateMultiModal
 from llama_index.core.indices import VectorStoreIndex
 from llama_index.multi_modal_llms.replicate.base import REPLICATE_MULTI_MODAL_LLM_MODELS
 from llama_index.multi_modal_llms.openai import OpenAIMultiModal
-import os
 import pandas as pd
 from tqdm import tqdm
-from metrics import eval_definition_qa
+from metrics.metrics import eval_definition_qa
+from openai import OpenAI
+import base64
 
 
 def load_output_csv(model, overwrite_answers=False):
     # if output csv does not exist, create it
     csv_name = f"definition_evaluation_{model}.csv"
     if not os.path.exists(csv_name) or overwrite_answers:
-        questions_pd = pd.read_csv("../../dataset/rule_comprehension/rule_definition_qa.csv")
+        questions_pd = pd.read_csv(
+            os.path.join(
+                os.path.dirname(os.path.dirname(os.path.dirname(__file__))),
+                "dataset",
+                "rule_comprehension",
+                "rule_definition_qa.csv",
+            )
+        )
         questions_pd.to_csv(csv_name, index=False)
     else:
         questions_pd = pd.read_csv(csv_name)
     return questions_pd, csv_name
 
 
+def encode_image(image_path):
+    with open(image_path, "rb") as image_file:
+        return base64.b64encode(image_file.read()).decode("utf-8")
+
+
+def call_qwen_vlm(question, image_path, base_url, api_key):
+    client = OpenAI(base_url=base_url, api_key=api_key)
+    base64_image = encode_image(image_path)
+    response = client.chat.completions.create(
+        model="Qwen/Qwen3.5-27B-FP8",
+        messages=[
+            {
+                "role": "user",
+                "content": [
+                    {"type": "text", "text": question},
+                    {
+                        "type": "image_url",
+                        "image_url": {"url": f"data:image/jpeg;base64,{base64_image}"},
+                    },
+                ],
+            }
+        ],
+        max_tokens=100,
+    )
+    msg = response.choices[0].message
+    return msg.content or msg.reasoning_content or ""
+
+
 def run_thread(model, question, image_path):
-    if model == 'llava-13b':
+    if model == "llava-13b":
         # API token of the model/pipeline that we will be using
         REPLICATE_API_TOKEN = ""
         os.environ["REPLICATE_API_TOKEN"] = REPLICATE_API_TOKEN
         model = REPLICATE_MULTI_MODAL_LLM_MODELS["llava-13b"]
         multi_modal_llm = ReplicateMultiModal(model=model, max_new_tokens=100)
-    elif model == 'gpt-4-1106-vision-preview' or model == 'gpt-4-1106-vision-preview+context':
+    elif (
+        model == "gpt-4-1106-vision-preview"
+        or model == "gpt-4-1106-vision-preview+context"
+    ):
         # OpenAI model
-        multi_modal_llm = OpenAIMultiModal(model="gpt-4-vision-preview", max_new_tokens=100)
+        multi_modal_llm = OpenAIMultiModal(
+            model="gpt-4-vision-preview", max_new_tokens=100
+        )
+    elif model in ["qwen-3.5-27b-fp8", "qwen-3.5-27b-fp8+context"]:
+        # Qwen VL model via OpenAI-compatible API - use native OpenAI client
+        return call_qwen_vlm(
+            question, image_path, os.getenv("QWEN_BASE_URL"), os.getenv("QWEN_API_KEY")
+        )
     else:
         raise ValueError("Invalid model")
 
@@ -37,7 +87,9 @@ def run_thread(model, question, image_path):
     image_document = SimpleDirectoryReader(input_files=[image_path]).load_data()
 
     # get response from model
-    rag_response = multi_modal_llm.complete(prompt=question, image_documents=image_document)
+    rag_response = multi_modal_llm.complete(
+        prompt=question, image_documents=image_document
+    )
     return str(rag_response)
 
 
@@ -63,43 +115,64 @@ def retrieve_context(question):
     txt_path = "../../dataset/docs/rules_pdfplumber1.txt"
     context = open(txt_path, "r", encoding="utf-8").read()
 
-    question_with_context = question[:80] + f"Below is context from the FSAE rule document which might or might not " \
-                            f"be relevant for the question: \n\n```\n{context}\n```\n\n" + question[117:]
+    question_with_context = (
+        question[:80]
+        + f"Below is context from the FSAE rule document which might or might not "
+        f"be relevant for the question: \n\n```\n{context}\n```\n\n" + question[117:]
+    )
 
     return question_with_context
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     overwrite_answers = False
 
-    for model in ['gpt-4-1106-vision-preview+context', 'gpt-4-1106-vision-preview', 'llava-13b']:
-        questions_pd, csv_name = load_output_csv(model, overwrite_answers=overwrite_answers)
+    for model in [
+        "qwen-3.5-27b-fp8",
+    ]:
+        questions_pd, csv_name = load_output_csv(
+            model, overwrite_answers=overwrite_answers
+        )
 
-        for i, row in tqdm(questions_pd.iterrows(), total=len(questions_pd), desc=f'generating responses for {model}'):
+        for i, row in tqdm(
+            questions_pd.iterrows(),
+            total=len(questions_pd),
+            desc=f"generating responses for {model}",
+        ):
             # if model_prediction column already has a prediction, skip the row
             try:
-                model_prediction = row['model_prediction']
+                model_prediction = row["model_prediction"]
             except KeyError:
                 model_prediction = None
             if not pd.isnull(model_prediction) and not overwrite_answers:
                 continue
 
-            question = row['question']
-            image_path = "../../dataset/rule_comprehension/rule_definition_qa/" + row['image']
+            question = row["question"]
+            image_path = os.path.join(
+                os.path.dirname(os.path.dirname(os.path.dirname(__file__))),
+                "dataset",
+                "rule_comprehension",
+                "rule_definition_qa",
+                row["image"],
+            )
 
             # Run through model
-            if model == 'gpt-4-1106-vision-preview+context':
+            if model == "gpt-4-1106-vision-preview+context":
                 question = retrieve_context(question)
             response = run_thread(model, question, image_path)
 
             # Save the response
-            questions_pd.at[i, 'model_prediction'] = response
+            questions_pd.at[i, "model_prediction"] = response
 
             # save the results
             questions_pd.to_csv(csv_name, index=False)
 
         # Compute the accuracy of the responses
-        macro_avg, definitions_avg, multi_avg, single_avg, all_answers = eval_definition_qa(csv_name)
+        macro_avg, definitions_avg, multi_avg, single_avg, all_answers = (
+            eval_definition_qa(csv_name)
+        )
 
         # Print and save the results
-        save_results(model, macro_avg, definitions_avg, multi_avg, single_avg, all_answers)
+        save_results(
+            model, macro_avg, definitions_avg, multi_avg, single_avg, all_answers
+        )
