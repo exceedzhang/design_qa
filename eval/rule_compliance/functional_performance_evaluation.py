@@ -55,6 +55,11 @@ def encode_image(image_path):
 
 
 def call_qwen_vlm(question, image_path, base_url, api_key):
+    if not base_url or not api_key:
+        raise ValueError(
+            "QWEN_BASE_URL and QWEN_API_KEY environment variables must be set "
+            "to use qwen-3.5-27b-fp8 model"
+        )
     client = OpenAI(base_url=base_url, api_key=api_key)
     base64_image = encode_image(image_path)
     response = client.chat.completions.create(
@@ -191,94 +196,99 @@ def save_results(
         text_file.write(f"\nAll rogues: {all_rogues}")
 
 
-if __name__ == "__main__":
-    overwrite_answers = False
-
+def run_inference(model, overwrite_answers=False):
     index = None
     question_type = "functional_performance"
-    for model in [
-        "qwen-3.5-27b-fp8",
-    ]:
-        if "RAG" in model and index is None:
-            if os.path.exists("index"):
-                print("Loading index from storage...")
-                storage_context = StorageContext.from_defaults(persist_dir="index")
-                index = load_index_from_storage(
-                    storage_context,
-                    embed_model=OpenAIEmbedding(model="text-embedding-3-large"),
-                )
-            else:
-                print("Creating index...")
-                index = create_index()
-                index.storage_context.persist("index")
-        questions_pd, csv_name = load_output_csv(
-            model, question_type, overwrite_answers
-        )
-
-        for i, row in tqdm(
-            questions_pd.iterrows(),
-            total=len(questions_pd),
-            desc=f"generating responses for {question_type} with {model}",
-        ):
-            # if model_prediction column already has a prediction, skip the row
-            try:
-                model_prediction = row["model_prediction"]
-            except KeyError:
-                model_prediction = None
-            if not pd.isnull(model_prediction) and not overwrite_answers:
-                continue
-
-            question = row["question"]
-            image_path = os.path.join(
-                os.path.dirname(os.path.dirname(os.path.dirname(__file__))),
-                "dataset",
-                "rule_compliance",
-                f"rule_{question_type}_qa",
-                "images",
-                row["image"],
+    if "RAG" in model and index is None:
+        if os.path.exists("index"):
+            print("Loading index...")
+            storage_context = StorageContext.from_defaults(persist_dir="index")
+            index = load_index_from_storage(
+                storage_context,
+                embed_model=OpenAIEmbedding(model="text-embedding-3-large"),
             )
+        else:
+            print("Creating index...")
+            index = create_index()
+            index.storage_context.persist("index")
+    questions_pd, csv_name = load_output_csv(model, question_type, overwrite_answers)
 
-            # Run through model
-            if model in ["gpt-4-1106-vision-preview+RAG", "llava-13b"]:
-                context = retrieve_context(index, question, top_k=12)
-            elif model in ["gpt-4-1106-vision-preview"]:
-                context = retrieve_context(index, question, top_k=0)
-            elif model in ["qwen-3.5-27b-fp8", "qwen-3.5-27b-fp8+RAG"]:
-                context = retrieve_context(None, question, top_k=0)
-            else:
-                raise ValueError("Invalid model")
+    for i, row in tqdm(
+        questions_pd.iterrows(),
+        total=len(questions_pd),
+        desc=f"generating responses for {question_type} with {model}",
+    ):
+        try:
+            model_prediction = row["model_prediction"]
+        except KeyError:
+            model_prediction = None
+        if not pd.isnull(model_prediction) and not overwrite_answers:
+            continue
 
-            try:
-                response = run_thread(model, question, image_path, context)
-            except Exception as e:
-                print(f"Error: {e}")
-                print(f"Question: {question}")
-                print(f"Index: {i}")
-                response = " "
-
-            # Save the response
-            questions_pd.at[i, "model_prediction"] = response
-
-            # save the results
-            questions_pd.to_csv(csv_name, index=False)
-
-        # Compute the accuracy of the responses
-        (
-            macro_avg_accuracy,
-            all_accuracies,
-            macro_avg_bleus,
-            all_bleus,
-            macro_avg_rogues,
-            all_rogues,
-        ) = eval_functional_performance_qa(csv_name)
-
-        # Print and save the results
-        save_results(
-            model,
-            macro_avg_accuracy,
-            all_accuracies,
-            macro_avg_bleus,
-            all_bleus,
-            macro_avg_rogues,
-            all_rogues,
+        question = row["question"]
+        image_path = os.path.join(
+            os.path.dirname(os.path.dirname(os.path.dirname(__file__))),
+            "dataset",
+            "rule_compliance",
+            f"rule_{question_type}_qa",
+            "images",
+            row["image"],
         )
+
+        if model in ["gpt-4-1106-vision-preview+RAG", "llava-13b"]:
+            context = retrieve_context(index, question, top_k=12)
+        elif model in ["gpt-4-1106-vision-preview"]:
+            context = retrieve_context(index, question, top_k=0)
+        elif model in ["qwen-3.5-27b-fp8", "qwen-3.5-27b-fp8+RAG"]:
+            context = retrieve_context(None, question, top_k=0)
+        else:
+            raise ValueError("Invalid model")
+
+        try:
+            response = run_thread(model, question, image_path, context)
+        except Exception as e:
+            print(f"Error: {e}")
+            print(f"Question: {question}")
+            print(f"Index: {i}")
+            response = " "
+
+        questions_pd.at[i, "model_prediction"] = response
+        questions_pd.to_csv(csv_name, index=False)
+
+    (
+        macro_avg_accuracy,
+        all_accuracies,
+        macro_avg_bleus,
+        all_bleus,
+        macro_avg_rogues,
+        all_rogues,
+    ) = eval_functional_performance_qa(csv_name)
+
+    save_results(
+        model,
+        macro_avg_accuracy,
+        all_accuracies,
+        macro_avg_bleus,
+        all_bleus,
+        macro_avg_rogues,
+        all_rogues,
+    )
+
+
+if __name__ == "__main__":
+    import argparse
+
+    parser = argparse.ArgumentParser(description="Functional performance evaluation")
+    parser.add_argument(
+        "--model",
+        type=str,
+        required=True,
+        help="Model name (e.g., qwen-3.5-27b-fp8, gpt-4-1106-vision-preview+RAG)",
+    )
+    parser.add_argument(
+        "--overwrite",
+        action="store_true",
+        help="Overwrite existing predictions",
+    )
+    args = parser.parse_args()
+    run_inference(args.model, args.overwrite)

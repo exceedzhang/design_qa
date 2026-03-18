@@ -38,6 +38,11 @@ def encode_image(image_path):
 
 
 def call_qwen_vlm(question, image_path, base_url, api_key):
+    if not base_url or not api_key:
+        raise ValueError(
+            "QWEN_BASE_URL and QWEN_API_KEY environment variables must be set "
+            "to use qwen-3.5-27b-fp8 model"
+        )
     client = OpenAI(base_url=base_url, api_key=api_key)
     base64_image = encode_image(image_path)
     response = client.chat.completions.create(
@@ -124,55 +129,57 @@ def retrieve_context(question):
     return question_with_context
 
 
+def run_inference(model, overwrite_answers=False):
+    questions_pd, csv_name = load_output_csv(model, overwrite_answers)
+
+    for i, row in tqdm(
+        questions_pd.iterrows(),
+        total=len(questions_pd),
+        desc=f"generating responses for {model}",
+    ):
+        try:
+            model_prediction = row["model_prediction"]
+        except KeyError:
+            model_prediction = None
+        if not pd.isnull(model_prediction) and not overwrite_answers:
+            continue
+
+        question = row["question"]
+        image_path = os.path.join(
+            os.path.dirname(os.path.dirname(os.path.dirname(__file__))),
+            "dataset",
+            "rule_comprehension",
+            "rule_definition_qa",
+            row["image"],
+        )
+
+        if model == "gpt-4-1106-vision-preview+context":
+            question = retrieve_context(question)
+        response = run_thread(model, question, image_path)
+
+        questions_pd.at[i, "model_prediction"] = response
+        questions_pd.to_csv(csv_name, index=False)
+
+    macro_avg, definitions_avg, multi_avg, single_avg, all_answers = eval_definition_qa(
+        csv_name
+    )
+    save_results(model, macro_avg, definitions_avg, multi_avg, single_avg, all_answers)
+
+
 if __name__ == "__main__":
-    overwrite_answers = False
+    import argparse
 
-    for model in [
-        "qwen-3.5-27b-fp8",
-    ]:
-        questions_pd, csv_name = load_output_csv(
-            model, overwrite_answers=overwrite_answers
-        )
-
-        for i, row in tqdm(
-            questions_pd.iterrows(),
-            total=len(questions_pd),
-            desc=f"generating responses for {model}",
-        ):
-            # if model_prediction column already has a prediction, skip the row
-            try:
-                model_prediction = row["model_prediction"]
-            except KeyError:
-                model_prediction = None
-            if not pd.isnull(model_prediction) and not overwrite_answers:
-                continue
-
-            question = row["question"]
-            image_path = os.path.join(
-                os.path.dirname(os.path.dirname(os.path.dirname(__file__))),
-                "dataset",
-                "rule_comprehension",
-                "rule_definition_qa",
-                row["image"],
-            )
-
-            # Run through model
-            if model == "gpt-4-1106-vision-preview+context":
-                question = retrieve_context(question)
-            response = run_thread(model, question, image_path)
-
-            # Save the response
-            questions_pd.at[i, "model_prediction"] = response
-
-            # save the results
-            questions_pd.to_csv(csv_name, index=False)
-
-        # Compute the accuracy of the responses
-        macro_avg, definitions_avg, multi_avg, single_avg, all_answers = (
-            eval_definition_qa(csv_name)
-        )
-
-        # Print and save the results
-        save_results(
-            model, macro_avg, definitions_avg, multi_avg, single_avg, all_answers
-        )
+    parser = argparse.ArgumentParser(description="Definition evaluation")
+    parser.add_argument(
+        "--model",
+        type=str,
+        required=True,
+        help="Model name (e.g., qwen-3.5-27b-fp8, gpt-4-1106-vision-preview)",
+    )
+    parser.add_argument(
+        "--overwrite",
+        action="store_true",
+        help="Overwrite existing predictions",
+    )
+    args = parser.parse_args()
+    run_inference(args.model, args.overwrite)

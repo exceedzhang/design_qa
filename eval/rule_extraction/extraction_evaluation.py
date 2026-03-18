@@ -12,7 +12,7 @@ from llama_index.core import StorageContext, load_index_from_storage
 from llama_index.core.node_parser import SentenceSplitter
 from llama_index.multi_modal_llms.replicate.base import REPLICATE_MULTI_MODAL_LLM_MODELS
 from llama_index.multi_modal_llms.replicate import ReplicateMultiModal
-
+from openai import OpenAI as OpenAIClient
 
 import csv
 import pandas as pd
@@ -51,8 +51,27 @@ def load_output_csv(model, question_type, overwrite_answers=False):
 
 
 def run_thread(model, question, context):
+    if model in ["qwen-3.5-27b-fp8", "qwen-3.5-27b-fp8+RAG"]:
+        base_url = os.getenv("QWEN_BASE_URL")
+        api_key = os.getenv("QWEN_API_KEY")
+        if not base_url or not api_key:
+            raise ValueError(
+                "QWEN_BASE_URL and QWEN_API_KEY environment variables must be set "
+                "to use qwen-3.5-27b-fp8 model"
+            )
+        question_with_context = add_context_to_prompt(question, context)
+        client = OpenAIClient(
+            base_url=base_url,
+            api_key=api_key,
+        )
+        response = client.chat.completions.create(
+            model="Qwen/Qwen3.5-27B-FP8",
+            messages=[{"role": "user", "content": question_with_context}],
+            max_tokens=250,
+        )
+        return response.choices[0].message.content or ""
+
     if model == "llama-2-70b-chat":
-        # API token of the model/pipeline that we will be using
         os.environ["REPLICATE_API_TOKEN"] = ""
         llm = Replicate(model="meta/llama-2-70b-chat", max_new_tokens=250)
     elif model == "llava-13b":
@@ -61,26 +80,14 @@ def run_thread(model, question, context):
             model=REPLICATE_MULTI_MODAL_LLM_MODELS["llava-13b"], max_new_tokens=250
         )
     elif model in ["gpt-4-0125-preview", "gpt-4-0125-preview+RAG"]:
-        # OpenAI model
         llm = OpenAI(model="gpt-4-0125-preview", max_new_tokens=250)
     elif model in ["gpt-4-1106-vision-preview", "gpt-4-1106-vision-preview+RAG"]:
-        # OpenAI model
         llm = OpenAIMultiModal(model="gpt-4-vision-preview", max_new_tokens=250)
-    elif model in ["qwen-3.5-27b-fp8", "qwen-3.5-27b-fp8+RAG"]:
-        # Qwen VL model via OpenAI-compatible API
-        llm = OpenAI(
-            model="Qwen/Qwen3.5-27B-FP8",
-            base_url=os.getenv("QWEN_BASE_URL"),
-            api_key=os.getenv("QWEN_API_KEY"),
-            max_new_tokens=250,
-        )
     else:
-        raise ValueError("Invalid model")
+        raise ValueError(f"Invalid model: {model}")
 
-    # modify text prompt to include context
     question = add_context_to_prompt(question, context)
 
-    # get response from model
     if model in [
         "llava-13b",
         "gpt-4-1106-vision-preview",
@@ -121,8 +128,12 @@ def add_context_to_prompt(prompt, context):
 
 
 def create_index():
-    # create the vector index from text documents
-    pdf_path = "../../dataset/docs/FSAE_Rules_2024_V1.pdf"
+    pdf_path = os.path.join(
+        os.path.dirname(os.path.dirname(os.path.dirname(__file__))),
+        "dataset",
+        "docs",
+        "FSAE_Rules_2024_V1.pdf",
+    )
     text_documents = SimpleDirectoryReader(input_files=[pdf_path]).load_data()
 
     # Transformation
@@ -152,12 +163,15 @@ def create_index():
 
 def retrieve_context(index, question, top_k=10):
     if top_k == 0:
-        # load all context from original text document
-        txt_path = "../../dataset/docs/rules_pdfplumber1.txt"
+        txt_path = os.path.join(
+            os.path.dirname(os.path.dirname(os.path.dirname(__file__))),
+            "dataset",
+            "docs",
+            "rules_pdfplumber1.txt",
+        )
         context = open(txt_path, "r", encoding="utf-8").read()
     else:
         retriever = index.as_retriever(similarity_top_k=top_k)
-        # question = rephrase_query(question)
         context = retriever.retrieve(question)
     return context
 
@@ -174,69 +188,79 @@ def save_results(model, macro_avg, all_answers, question_type):
         text_file.write(f"\nAll answers: {all_answers}")
 
 
-if __name__ == "__main__":
-    overwrite_answers = False
-
+def run_inference(model, overwrite_answers=False):
     index = None
     for question_type in ["retrieval", "compilation"]:
-        # models available: 'gpt-4-0125-preview+RAG', 'gpt-4-0125-preview', 'llama-2-70b-chat', 'llava-13b', 'gpt-4-1106-vision-preview+RAG', 'gpt-4-1106-vision-preview', 'qwen-3.5-27b-fp8', 'qwen-3.5-27b-fp8+RAG'
-        for model in [
-            "qwen-3.5-27b-fp8",
-        ]:
-            questions_pd, csv_name = load_output_csv(
-                model, question_type, overwrite_answers
-            )
+        questions_pd, csv_name = load_output_csv(
+            model, question_type, overwrite_answers
+        )
 
-            for i, row in tqdm(
-                questions_pd.iterrows(),
-                total=len(questions_pd),
-                desc=f"generating responses for {question_type} with {model}",
-            ):
-                # if model_prediction column already has a prediction, skip the row
-                try:
-                    model_prediction = row["model_prediction"]
-                except KeyError:
-                    model_prediction = None
-                if not pd.isnull(model_prediction) and not overwrite_answers:
-                    continue
+        for i, row in tqdm(
+            questions_pd.iterrows(),
+            total=len(questions_pd),
+            desc=f"generating responses for {question_type} with {model}",
+        ):
+            try:
+                model_prediction = row["model_prediction"]
+            except KeyError:
+                model_prediction = None
+            if not pd.isnull(model_prediction) and not overwrite_answers:
+                continue
 
-                question = row["question"]
+            question = row["question"]
 
-                # Run through model
-                if model in [
-                    "llama-2-70b-chat",
-                    "gpt-4-0125-preview+RAG",
-                    "gpt-4-1106-vision-preview+RAG",
-                    "llava-13b",
-                    "llava-v1.6",
-                ]:
-                    context = retrieve_context(index, question, top_k=15)
-                elif model in ["gpt-4-0125-preview", "gpt-4-1106-vision-preview"]:
-                    context = retrieve_context(index, question, top_k=0)
-                else:
-                    raise ValueError("Invalid model")
-                try:
-                    response = run_thread(model, question, context)
-                except Exception as e:
-                    print(f"Error: {e}")
-                    print(f"Question: {question}")
-                    print(f"Index: {i}")
-                    response = " "
-
-                # Save the response
-                questions_pd.at[i, "model_prediction"] = response
-
-                # save the results
-                questions_pd.to_csv(csv_name, index=False)
-
-            # Compute the accuracy of the responses
-            if question_type == "retrieval":
-                eval_presence_qa = eval_retrieval_qa
-            elif question_type == "compilation":
-                eval_presence_qa = eval_compilation_qa
+            if model in [
+                "llama-2-70b-chat",
+                "gpt-4-0125-preview+RAG",
+                "gpt-4-1106-vision-preview+RAG",
+                "llava-13b",
+                "llava-v1.6",
+            ]:
+                context = retrieve_context(index, question, top_k=15)
+            elif model in [
+                "gpt-4-0125-preview",
+                "gpt-4-1106-vision-preview",
+                "qwen-3.5-27b-fp8",
+                "qwen-3.5-27b-fp8+RAG",
+            ]:
+                context = retrieve_context(index, question, top_k=0)
             else:
-                raise ValueError("Invalid question type")
-            macro_avg, all_answers = eval_presence_qa(csv_name)
+                raise ValueError(f"Invalid model: {model}")
+            try:
+                response = run_thread(model, question, context)
+            except Exception as e:
+                print(f"Error: {e}")
+                print(f"Question: {question}")
+                print(f"Index: {i}")
+                response = " "
 
-            # Print and save the results
-            save_results(model, macro_avg, all_answers, question_type)
+            questions_pd.at[i, "model_prediction"] = response
+            questions_pd.to_csv(csv_name, index=False)
+
+        if question_type == "retrieval":
+            eval_fn = eval_retrieval_qa
+        elif question_type == "compilation":
+            eval_fn = eval_compilation_qa
+        else:
+            raise ValueError("Invalid question type")
+        macro_avg, all_answers = eval_fn(csv_name)
+        save_results(model, macro_avg, all_answers, question_type)
+
+
+if __name__ == "__main__":
+    import argparse
+
+    parser = argparse.ArgumentParser(description="Rule extraction evaluation")
+    parser.add_argument(
+        "--model",
+        type=str,
+        required=True,
+        help="Model name (e.g., qwen-3.5-27b-fp8, gpt-4-0125-preview)",
+    )
+    parser.add_argument(
+        "--overwrite",
+        action="store_true",
+        help="Overwrite existing predictions",
+    )
+    args = parser.parse_args()
+    run_inference(args.model, args.overwrite)

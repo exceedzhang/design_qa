@@ -3,3 +3,7 @@ __pycache__/
 /eval/rule_comprehension/index/
 /eval/rule_extraction/index/
 /eval/rule_compliance/index/
+.idea/
+*.csv
+*.txt
+results.txt

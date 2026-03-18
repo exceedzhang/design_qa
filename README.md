@@ -34,7 +34,7 @@ conda create -n design_qa python=3.10 -y && conda activate design_qa && pip inst
 To evaluate your approach's score on the DesignQA benchmark, run:
 
 ```
-python eval/full_evaluation.py --path_to_retrieval {path_to_csv_for_retrieval} --path_to_compilation {path_to_csv_for_compilation} --path_to_definition {path_to_csv_for_definition} --path_to_presence {path_to_csv_for_presence} --path_to_dimension {path_to_csv_for_dimension} --path_to_functional_performance {path_to_csv_for_functional_performance}
+QWEN_API_KEY=sk-1234 QWEN_BASE_URL=http://localhost:8000/v1 python eval/full_evaluation.py --model qwen-3.5-27b-fp8 --overwrite
 ```
 
 Each csv file should have two columns: `ground_truth` and `model_prediction`. The `ground_truth` column should contain the correct answers to the questions, while the `model_prediction` column should contain your model/approach's corresponding answer. Essentially, when you evalaute your solution, you should copy each of the dataset csvs (detailed in the [Dataset](#dataset) section below) and add a column called `model_prediction` for your solutions's answers.

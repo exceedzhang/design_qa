@@ -16,7 +16,20 @@ pip install -r requirements.txt
 
 ### Running Evaluations
 ```bash
-# Full benchmark evaluation
+# Full benchmark evaluation (runs inference + scoring in one command)
+python eval/full_evaluation.py --model qwen-3.5-27b-fp8 --overwrite
+
+# Full benchmark scoring only (score existing CSVs without re-running inference)
+python eval/full_evaluation.py --model qwen-3.5-27b-fp8 --skip-inference
+
+# Individual task inference + scoring (standalone)
+python eval/rule_extraction/extraction_evaluation.py --model qwen-3.5-27b-fp8
+python eval/rule_comprehension/definition_evaluation.py --model qwen-3.5-27b-fp8
+python eval/rule_comprehension/presence_evaluation.py --model qwen-3.5-27b-fp8
+python eval/rule_compliance/dimension_evaluation.py --model qwen-3.5-27b-fp8
+python eval/rule_compliance/functional_performance_evaluation.py --model qwen-3.5-27b-fp8
+
+# Legacy CSV-based scoring
 python eval/full_evaluation.py \
   --path_to_retrieval <path_to_csv> \
   --path_to_compilation <path_to_csv> \
@@ -25,6 +38,9 @@ python eval/full_evaluation.py \
   --path_to_dimension <path_to_csv> \
   --path_to_functional_performance <path_to_csv>
 ```
+
+### Supported Models
+`qwen-3.5-27b-fp8`, `qwen-3.5-27b-fp8+RAG`, `gpt-4-0125-preview`, `gpt-4-0125-preview+RAG`, `gpt-4-1106-vision-preview`, `gpt-4-1106-vision-preview+RAG`, `llama-2-70b-chat`, `llava-13b`
 
 ### Running Single Evaluation Tasks
 ```bash
