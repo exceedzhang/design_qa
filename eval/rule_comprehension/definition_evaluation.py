@@ -59,7 +59,7 @@ def call_qwen_vlm(question, image_path, base_url, api_key):
                 ],
             }
         ],
-        max_tokens=100,
+        max_tokens=500,
     )
     msg = response.choices[0].message
     return msg.content or msg.reasoning_content or ""

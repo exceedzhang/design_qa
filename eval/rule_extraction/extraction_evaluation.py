@@ -67,7 +67,7 @@ def run_thread(model, question, context):
         response = client.chat.completions.create(
             model="Qwen/Qwen3.5-27B-FP8",
             messages=[{"role": "user", "content": question_with_context}],
-            max_tokens=250,
+            max_tokens=2000,
         )
         message = response.choices[0].message
         return (message.content or message.reasoning_content or "").strip()
