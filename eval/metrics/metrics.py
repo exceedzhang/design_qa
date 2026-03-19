@@ -36,6 +36,7 @@ from sentence_transformers import util
 ## Dimensioning & tolerancing
 ## Functional performance
 
+
 ########################
 ## Cleaning functions
 ########################
@@ -63,11 +64,11 @@ def normalize_answer(s):
 
 
 def character_string_no_space(text):
-    return text.replace(' ', '')
+    return text.replace(" ", "")
 
 
 def clean_rule_list_prediction(rl):
-    list_of_rules = rl.split(',')
+    list_of_rules = rl.split(",")
     list_of_rules = [i.strip() for i in list_of_rules]
     return " ".join(list_of_rules)
 
@@ -93,6 +94,7 @@ def clean_rule_list_prediction(rl):
 #     f1 = (2 * precision * recall) / (precision + recall)
 #     return f1
 
+
 # F1 on a bag of tokens
 def token_f1_score(prediction_tokens, ground_truth_tokens):
     """
@@ -116,7 +118,7 @@ def tokenize(text):
     """
     Taken from the ScienceQA evaluations.py script
     """
-    tokens = re.split(r'\s|\.', text)
+    tokens = re.split(r"\s|\.", text)
     tokens = [t for t in tokens if len(t) > 0]
     return tokens
 
@@ -130,15 +132,24 @@ def bleu_score(target, prediction, gram):
     hypothesis_tokens = tokenize(prediction)
 
     if gram == 1:
-        bleu = sentence_bleu([reference_tokens], hypothesis_tokens, (1.,))  # BELU-1
+        bleu = sentence_bleu([reference_tokens], hypothesis_tokens, (1.0,))  # BELU-1
     elif gram == 2:
-        bleu = sentence_bleu([reference_tokens], hypothesis_tokens, (1. / 2., 1. / 2.))  # BELU-2
+        bleu = sentence_bleu(
+            [reference_tokens], hypothesis_tokens, (1.0 / 2.0, 1.0 / 2.0)
+        )  # BELU-2
     elif gram == 3:
-        bleu = sentence_bleu([reference_tokens], hypothesis_tokens, (1. / 3., 1. / 3., 1. / 3.))  # BELU-3
+        bleu = sentence_bleu(
+            [reference_tokens], hypothesis_tokens, (1.0 / 3.0, 1.0 / 3.0, 1.0 / 3.0)
+        )  # BELU-3
     elif gram == 4:
-        bleu = sentence_bleu([reference_tokens], hypothesis_tokens, (1. / 4., 1. / 4., 1. / 4., 1. / 4.))  # BELU-4
+        bleu = sentence_bleu(
+            [reference_tokens],
+            hypothesis_tokens,
+            (1.0 / 4.0, 1.0 / 4.0, 1.0 / 4.0, 1.0 / 4.0),
+        )  # BELU-4
 
     return bleu
+
 
 ########################
 ## SIMILARITY SCORE, taken from SciencQA evaluations.py script
@@ -150,6 +161,7 @@ def similariry_score(str1, str2, model):
     score = util.pytorch_cos_sim(embedding_1, embedding_2).item()
     return score
 
+
 ########################
 ## Rouge-L
 ########################
@@ -159,7 +171,7 @@ def score_rouge(target, prediction):
     """
     rouge = Rouge(metrics=["rouge-l"])
     scores = rouge.get_scores(target, prediction, avg=True)
-    rouge_l = scores['rouge-l']['f']
+    rouge_l = scores["rouge-l"]["f"]
     return rouge_l
 
 
@@ -171,16 +183,19 @@ def eval_retrieval_qa(results_csv):
     """
     :param results_csv: the csv should contain the results from running the QA through a model.
     it should have a column called "model_prediction" and another called "ground_truth" with corresponding GT
-    
-    :returns: 
+
+    :returns:
     1. overall score on QA (macro average)
     2. F1 score for each QA
     """
     results_df = pd.read_csv(results_csv)
     f1_scores = []
     for i, row in results_df.iterrows():
-        prediction_tokens = normalize_answer(row['model_prediction']).split()
-        ground_truth_tokens = normalize_answer(row['ground_truth']).split()
+        prediction = row["model_prediction"]
+        if pd.isna(prediction) or str(prediction).strip() == "":
+            prediction = " "
+        prediction_tokens = normalize_answer(str(prediction)).split()
+        ground_truth_tokens = normalize_answer(row["ground_truth"]).split()
         f1_scores.append(token_f1_score(prediction_tokens, ground_truth_tokens))
 
     return mean(f1_scores), f1_scores
@@ -191,8 +206,8 @@ def eval_compilation_qa(results_csv):
     """
     :param results_csv: the csv should contain the results from running the QA through a model.
     it should have a column called "model_prediction" and another called "ground_truth" with corresponding GT
-    
-    :returns: 
+
+    :returns:
     1. overall score on QA (macro average)
     2. F1 score for each QA
     """
@@ -200,11 +215,16 @@ def eval_compilation_qa(results_csv):
     f1_scores = []
     for i, row in results_df.iterrows():
         try:
-            prediction_tokens = row['model_prediction'].split(", ")
+            prediction = row["model_prediction"]
+            if pd.isna(prediction) or str(prediction).strip() == "":
+                prediction_tokens = []
+            else:
+                prediction_tokens = str(prediction).split(", ")
         except Exception as e:
             print(f"Error: {e}")
             print("Model output non-standard")
-        ground_truth_tokens = ast.literal_eval(row['ground_truth'])
+            prediction_tokens = []
+        ground_truth_tokens = ast.literal_eval(row["ground_truth"])
         f1_scores.append(token_f1_score(prediction_tokens, ground_truth_tokens))
 
     return mean(f1_scores), f1_scores
@@ -216,8 +236,8 @@ def eval_definition_qa(results_csv):
     :param results_csv: the csv should contain the results from running the QA through a model.
     it should have a column called "model_prediction" and another called "ground_truth" with corresponding GT
     and a third column with "mentions" indicating the number of times the component was mentioned
-    
-    :returns: 
+
+    :returns:
     1. overall score on QA (macro average)
     2. overall score for defintion-explicit
     3. overall score for mentioned
@@ -232,23 +252,31 @@ def eval_definition_qa(results_csv):
     for i, row in results_df.iterrows():
         qa_f1_scores = []
 
-        prediction_tokens = list(character_string_no_space(normalize_answer(row['model_prediction'])))
-        synonym_tokens = []
-        if ";" in row['ground_truth']:
-            synonyms = row['ground_truth'].split(';')
-            for syn in synonyms:
-                synonym_tokens.append(list(character_string_no_space(normalize_answer(syn))))
+        prediction = row["model_prediction"]
+        if pd.isna(prediction) or str(prediction).strip() == "":
+            prediction_tokens = []
         else:
-            synonym_tokens.append(list(character_string_no_space(row['ground_truth'])))
+            prediction_tokens = list(
+                character_string_no_space(normalize_answer(str(prediction)))
+            )
+        synonym_tokens = []
+        if ";" in row["ground_truth"]:
+            synonyms = row["ground_truth"].split(";")
+            for syn in synonyms:
+                synonym_tokens.append(
+                    list(character_string_no_space(normalize_answer(syn)))
+                )
+        else:
+            synonym_tokens.append(list(character_string_no_space(row["ground_truth"])))
 
         for ground_truth_tokens in synonym_tokens:
             qa_f1_scores.append(token_f1_score(prediction_tokens, ground_truth_tokens))
 
         f1_scores.append(max(qa_f1_scores))
 
-        if row['mentions'] == 'definition':
+        if row["mentions"] == "definition":
             f1_scores_definition.append(max(qa_f1_scores))
-        elif row['mentions'] == 'mentioned':
+        elif row["mentions"] == "mentioned":
             f1_scores_mentioned.append(max(qa_f1_scores))
         else:
             f1_scores_none.append(max(qa_f1_scores))
@@ -259,8 +287,13 @@ def eval_definition_qa(results_csv):
         else:
             return mean(input_list)
 
-    return mean(f1_scores), mean_score(f1_scores_definition), mean_score(f1_scores_mentioned), mean_score(
-        f1_scores_none), f1_scores
+    return (
+        mean(f1_scores),
+        mean_score(f1_scores_definition),
+        mean_score(f1_scores_mentioned),
+        mean_score(f1_scores_none),
+        f1_scores,
+    )
 
 
 # Presence QAs will be scored using accuracy
@@ -268,8 +301,8 @@ def eval_presence_qa(results_csv):
     """
     :param results_csv: the csv should contain the results from running the QA through a model.
     it should have a column called "model_prediction" and another called "ground_truth" with corresponding GT
-    
-    :returns: 
+
+    :returns:
     1. overall score on QA (macro average)
      2. overall score for defintion-explicit
     3. overall score for mentioned
@@ -284,31 +317,54 @@ def eval_presence_qa(results_csv):
     f1_scores_mentioned = []
     f1_scores_not_mentioned = []
     for i, row in results_df.iterrows():
-        prediction_tokens = normalize_answer(row['model_prediction']).split()
-        ground_truth_tokens = normalize_answer(row['ground_truth']).split()
+        prediction_text = row["model_prediction"]
+        ground_truth_tokens = normalize_answer(row["ground_truth"]).split()
 
-        # Extract the first yes/no in the prediction answer, this will be what we will score the model on
-        def get_first_yes_no(text_list):
-            for i in text_list:
-                if i == "yes":
-                    return ['yes']
-                if i == "no":
-                    return ['no']
-            return ['noanswer']
+        def get_yes_no(text):
+            text_lower = text.lower()
+            tokens = text_lower.split()
 
-        prediction_tokens = get_first_yes_no(prediction_tokens)
+            patterns = [
+                ("yes", ["yes"]),
+                ("no", ["no"]),
+                ("answer: yes", ["yes"]),
+                ("answer: no", ["no"]),
+                ("final answer: yes", ["yes"]),
+                ("final answer: no", ["no"]),
+                ("conclusion: yes", ["yes"]),
+                ("conclusion: no", ["no"]),
+            ]
+
+            for pattern, result in patterns:
+                if pattern in text_lower:
+                    return result
+
+            for t in tokens:
+                if t == "yes":
+                    return ["yes"]
+                if t == "no":
+                    return ["no"]
+            return ["noanswer"]
+
+        prediction_tokens = get_yes_no(prediction_text)
 
         # Computing f1_score between yeses and nos on a word level will produce 1 if the responses agree and 0
         # if the responses don't. So this will produce list of 1s and 0s across all questions
         f1_scores.append(token_f1_score(prediction_tokens, ground_truth_tokens))
 
         # Log results dependening on number of mentions
-        if row['mentions'] == 'definition':
-            f1_scores_definition.append(token_f1_score(prediction_tokens, ground_truth_tokens))
-        elif row['mentions'] == 'mentioned':
-            f1_scores_mentioned.append(token_f1_score(prediction_tokens, ground_truth_tokens))
+        if row["mentions"] == "definition":
+            f1_scores_definition.append(
+                token_f1_score(prediction_tokens, ground_truth_tokens)
+            )
+        elif row["mentions"] == "mentioned":
+            f1_scores_mentioned.append(
+                token_f1_score(prediction_tokens, ground_truth_tokens)
+            )
         else:
-            f1_scores_not_mentioned.append(token_f1_score(prediction_tokens, ground_truth_tokens))
+            f1_scores_not_mentioned.append(
+                token_f1_score(prediction_tokens, ground_truth_tokens)
+            )
 
     def mean_score(input_list):
         if len(input_list) < 1:
@@ -317,16 +373,21 @@ def eval_presence_qa(results_csv):
             return mean(input_list)
 
     # Return means
-    return mean(f1_scores), mean_score(f1_scores_definition), mean_score(f1_scores_mentioned), mean_score(
-        f1_scores_not_mentioned), f1_scores
+    return (
+        mean(f1_scores),
+        mean_score(f1_scores_definition),
+        mean_score(f1_scores_mentioned),
+        mean_score(f1_scores_not_mentioned),
+        f1_scores,
+    )
 
 
 def eval_dimensions_qa(results_csv):
     """
     :param results_csv: the csv should contain the results from running the QA through a model.
     it should have a column called "model_prediction" and another called "ground_truth" with corresponding GT
-    
-    :returns: 
+
+    :returns:
     1. overall accuracy score on QAs (macro average)
     2. macro avg accuracy for direct dimension qas
     3. macro avg accuracy for scale bar qas
@@ -345,12 +406,14 @@ def eval_dimensions_qa(results_csv):
     bleus = []
     rogues = []
     similarities = []
-    
+
     for i, row in results_df.iterrows():
-        ground_truth_tokens = normalize_answer(row['ground_truth']).split()
-            
+        ground_truth_tokens = normalize_answer(row["ground_truth"]).split()
+
         # Locate the explanation portion of the answer
         def find_explanation_and_answer(pred):
+            if pd.isna(pred) or str(pred).strip() == "":
+                pred = " "
             explanation = ""
             answer = ""
             explanation_index = None
@@ -362,51 +425,58 @@ def eval_dimensions_qa(results_csv):
                 if "answer:" in word:
                     answer_index = i
             if explanation_index != None:
-                explanation = " ".join(pred.split()[explanation_index + 1 : answer_index])
+                explanation = " ".join(
+                    pred.split()[explanation_index + 1 : answer_index]
+                )
             if answer_index != None:
-                answer = " ".join(pred.split()[answer_index + 1:])
+                answer = " ".join(pred.split()[answer_index + 1 :])
                 if len(answer.split()) > 3:
                     answer = " ".join(answer.split()[:3])
-                    
+
             return answer, explanation
-        
-        answer, explanation = find_explanation_and_answer(row['model_prediction'])
-        
+
+        answer, explanation = find_explanation_and_answer(row["model_prediction"])
+
         # Extract the first yes/no in the prediction answer, this will be what we will score the model on
         def get_first_yes_no(text_list):
             for i in text_list:
                 if i == "yes":
-                    return ['yes']
+                    return ["yes"]
                 if i == "no":
-                    return ['no']
-            return ['noanswer']
-        
+                    return ["no"]
+            return ["noanswer"]
+
         prediction_yes_no = get_first_yes_no(normalize_answer(answer).split())
-        
+
         # Computing f1_score between yeses and nos on a word level will produce 1 if the responses agree and 0
         # if the responses don't. So this will produce list of 1s and 0s across all questions
         accuracies.append(token_f1_score(prediction_yes_no, ground_truth_tokens))
-        
-        if row['dimension_type'] == "direct":
-            direct_dim_accuracies.append(token_f1_score(prediction_yes_no, ground_truth_tokens))
+
+        if row["dimension_type"] == "direct":
+            direct_dim_accuracies.append(
+                token_f1_score(prediction_yes_no, ground_truth_tokens)
+            )
         else:
-            scale_bar_accuracies.append(token_f1_score(prediction_yes_no, ground_truth_tokens))
-        
+            scale_bar_accuracies.append(
+                token_f1_score(prediction_yes_no, ground_truth_tokens)
+            )
+
         # Only have explanations for direct dimensions
-        if row['dimension_type'] == "direct":
-            
+        if row["dimension_type"] == "direct":
             if explanation == "":
                 rogues.append(0)
                 bleus.append(0)
                 similarities.append(0)
             else:
                 # compute bleu-2
-                bleu_2 = bleu_score(row['explanation'], explanation, 2) #used bleu 2 instead of 4 because only single reference leads to lower
+                bleu_2 = bleu_score(
+                    row["explanation"], explanation, 2
+                )  # used bleu 2 instead of 4 because only single reference leads to lower
                 # chance of n-gram overlap
                 bleus.append(bleu_2)
-                
+
                 # compute rouge-l
-                rouge_l = score_rouge(row['explanation'], explanation)
+                rouge_l = score_rouge(row["explanation"], explanation)
                 rogues.append(rouge_l)
 
                 # # compute similarity
@@ -420,23 +490,32 @@ def eval_dimensions_qa(results_csv):
         else:
             return mean(input_list)
 
-    return mean_score(accuracies), mean_score(direct_dim_accuracies), mean_score(scale_bar_accuracies), accuracies, mean_score(bleus), bleus, mean(rogues), rogues
+    return (
+        mean_score(accuracies),
+        mean_score(direct_dim_accuracies),
+        mean_score(scale_bar_accuracies),
+        accuracies,
+        mean_score(bleus),
+        bleus,
+        mean(rogues),
+        rogues,
+    )
 
 
 def eval_functional_performance_qa(results_csv):
     """
-        :param results_csv: the csv should contain the results from running the QA through a model.
-        it should have a column called "model_prediction" and another called "ground_truth" with corresponding GT
-        
-        :returns: 
-        1. overall accuracy score on QAs (macro average)
-        2. all accuracies
-        3. macro avg bleu-2
-        4. all bleu-2 scores
-        5. macro avg rogue-l
-        6. all rogue-l scores
-        7. macro avg similarity score
-        8. all similarity scores=
+    :param results_csv: the csv should contain the results from running the QA through a model.
+    it should have a column called "model_prediction" and another called "ground_truth" with corresponding GT
+
+    :returns:
+    1. overall accuracy score on QAs (macro average)
+    2. all accuracies
+    3. macro avg bleu-2
+    4. all bleu-2 scores
+    5. macro avg rogue-l
+    6. all rogue-l scores
+    7. macro avg similarity score
+    8. all similarity scores=
     """
     results_df = pd.read_csv(results_csv)
 
@@ -445,12 +524,14 @@ def eval_functional_performance_qa(results_csv):
     bleus = []
     rogues = []
     similarities = []
-    
+
     for i, row in results_df.iterrows():
-        ground_truth_tokens = normalize_answer(row['ground_truth']).split()
-            
+        ground_truth_tokens = normalize_answer(row["ground_truth"]).split()
+
         # Locate the explanation portion of the answer
         def find_explanation_and_answer(pred):
+            if pd.isna(pred) or str(pred).strip() == "":
+                pred = " "
             explanation = ""
             answer = ""
             explanation_index = None
@@ -462,42 +543,46 @@ def eval_functional_performance_qa(results_csv):
                 if "answer:" in word:
                     answer_index = i
             if explanation_index != None:
-                explanation = " ".join(pred.split()[explanation_index + 1 : answer_index])
+                explanation = " ".join(
+                    pred.split()[explanation_index + 1 : answer_index]
+                )
             if answer_index != None:
-                answer = " ".join(pred.split()[answer_index + 1:])
+                answer = " ".join(pred.split()[answer_index + 1 :])
                 if len(answer.split()) > 3:
                     answer = " ".join(answer.split()[:3])
             return answer, explanation
-        
-        answer, explanation = find_explanation_and_answer(row['model_prediction'])
-        
+
+        answer, explanation = find_explanation_and_answer(row["model_prediction"])
+
         # Extract the first yes/no in the prediction answer, this will be what we will score the model on
         def get_first_yes_no(text_list):
             for i in text_list:
                 if i == "yes":
-                    return ['yes']
+                    return ["yes"]
                 if i == "no":
-                    return ['no']
-            return ['noanswer']
-        
+                    return ["no"]
+            return ["noanswer"]
+
         prediction_yes_no = get_first_yes_no(normalize_answer(answer).split())
-        
+
         # Computing f1_score between yeses and nos on a word level will produce 1 if the responses agree and 0
         # if the responses don't. So this will produce list of 1s and 0s across all questions
         accuracies.append(token_f1_score(prediction_yes_no, ground_truth_tokens))
-            
+
         if explanation == "":
             rogues.append(0)
             bleus.append(0)
             similarities.append(0)
         else:
             # compute bleu-2
-            bleu_2 = bleu_score(row['explanation'], explanation, 2) #used bleu 2 instead of 4 because only single reference leads to lower
+            bleu_2 = bleu_score(
+                row["explanation"], explanation, 2
+            )  # used bleu 2 instead of 4 because only single reference leads to lower
             # chance of n-gram overlap
             bleus.append(bleu_2)
-            
+
             # compute rouge-l
-            rouge_l = score_rouge(row['explanation'], explanation)
+            rouge_l = score_rouge(row["explanation"], explanation)
             rogues.append(rouge_l)
 
             # # compute similarity
@@ -511,10 +596,17 @@ def eval_functional_performance_qa(results_csv):
         else:
             return mean(input_list)
 
-    return mean_score(accuracies), accuracies, mean_score(bleus), bleus, mean(rogues), rogues
+    return (
+        mean_score(accuracies),
+        accuracies,
+        mean_score(bleus),
+        bleus,
+        mean(rogues),
+        rogues,
+    )
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     print("Testing evaluation metrics")
     # # TEST RETRIEVAL QA
     # macro, all = eval_retrieval_qa('eval_metric_test_retrieval.csv')
@@ -556,7 +648,7 @@ if __name__ == '__main__':
     # print(no_mentioned_avg)
     # print("all f1")
     # print(all_answers)
-    
+
     # # # TEST DIMENSION QA
     # macro_avg_accuracy, direct_dim_avg, scale_bar_avg, all_accuracies, macro_avg_bleus, all_bleus, macro_avg_rogues, all_rogues = eval_dimensions_qa('compliance_test.csv')
     # eval_dimensions_qa('compliance_test.csv')
@@ -576,7 +668,7 @@ if __name__ == '__main__':
     # print(macro_avg_rogues)
     # print("all_rogues")
     # print(all_rogues)
-    
+
     # # # TEST FP QA
     # macro_avg_accuracy, all_accuracies, macro_avg_bleus, all_bleus, macro_avg_rogues, all_rogues = eval_functional_performance_qa('compliance_test_fp.csv')
     # eval_dimensions_qa('compliance_test.csv')
@@ -594,6 +686,8 @@ if __name__ == '__main__':
     # print(all_rogues)
 
     # # TEST similarity scores
-    sentence_transformer = SentenceTransformer('sentence-transformers/all-MiniLM-L6-v2').cuda()
+    sentence_transformer = SentenceTransformer(
+        "sentence-transformers/all-MiniLM-L6-v2"
+    ).cuda()
     final_score = similariry_score("yayayaya", "I hate you", sentence_transformer)
     print(final_score)

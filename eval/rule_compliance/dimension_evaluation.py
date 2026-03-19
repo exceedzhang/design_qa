@@ -142,11 +142,9 @@ def add_context_to_prompt(prompt, context):
 
 
 def create_index():
-    # create the vector index from text documents
     pdf_path = "../../dataset/docs/FSAE_Rules_2024_V1.pdf"
     text_documents = SimpleDirectoryReader(input_files=[pdf_path]).load_data()
 
-    # Transformation
     chunk_size = 250
     transformations = [SentenceSplitter(chunk_size=chunk_size, chunk_overlap=50)]
     embedding_model = OpenAIEmbedding(model="text-embedding-3-large")
@@ -154,7 +152,7 @@ def create_index():
         text_documents, embed_model=embedding_model, transformations=transformations
     )
 
-    index.storage_context.persist(f"index-{chunk_size}")
+    index.storage_context.persist("index")
     return index
 
 

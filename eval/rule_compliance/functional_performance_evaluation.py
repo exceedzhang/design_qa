@@ -153,14 +153,18 @@ def create_index():
         text_documents, embed_model=embedding_model, transformations=transformations
     )
 
-    index.storage_context.persist(f"index-{chunk_size}")
+    index.storage_context.persist("index")
     return index
 
 
 def retrieve_context(index, question, top_k=10):
     if top_k == 0:
-        # load all context from original text document
-        txt_path = "../../dataset/docs/rules_pdfplumber1.txt"
+        txt_path = os.path.join(
+            os.path.dirname(os.path.dirname(os.path.dirname(__file__))),
+            "dataset",
+            "docs",
+            "rules_pdfplumber1.txt",
+        )
         context = open(txt_path, "r", encoding="utf-8").read()
     else:
         retriever = index.as_retriever(similarity_top_k=top_k)
@@ -170,6 +174,7 @@ def retrieve_context(index, question, top_k=10):
 
 def save_results(
     model,
+    question_type,
     macro_avg_accuracy,
     all_accuracies,
     macro_avg_bleus,
@@ -185,7 +190,6 @@ def save_results(
     print(f"\nMacro avg rogues: {macro_avg_rogues}")
     print(f"\nAll rogues: {all_rogues}")
 
-    # Save results to txt file
     with open(f"dimension_{question_type}_evaluation_{model}.txt", "w") as text_file:
         text_file.write(f"Model: {model}")
         text_file.write(f"\nMacro avg: {macro_avg_accuracy}")
@@ -266,6 +270,7 @@ def run_inference(model, overwrite_answers=False):
 
     save_results(
         model,
+        question_type,
         macro_avg_accuracy,
         all_accuracies,
         macro_avg_bleus,

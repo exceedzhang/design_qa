@@ -74,7 +74,7 @@ def call_qwen_vlm(question, image_path, base_url, api_key):
                 ],
             }
         ],
-        max_tokens=100,
+        max_tokens=200,
     )
     msg = response.choices[0].message
     return msg.content or msg.reasoning_content or ""
@@ -86,13 +86,13 @@ def run_thread(model, question, image_path, context):
         REPLICATE_API_TOKEN = ""
         os.environ["REPLICATE_API_TOKEN"] = REPLICATE_API_TOKEN
         model = REPLICATE_MULTI_MODAL_LLM_MODELS["llava-13b"]
-        multi_modal_llm = ReplicateMultiModal(model=model, max_new_tokens=100)
+        multi_modal_llm = ReplicateMultiModal(model=model, max_new_tokens=200)
     elif (
         model == "gpt-4-1106-vision-preview" or model == "gpt-4-1106-vision-preview+RAG"
     ):
         # OpenAI model
         multi_modal_llm = OpenAIMultiModal(
-            model="gpt-4-vision-preview", max_new_tokens=100
+            model="gpt-4-vision-preview", max_new_tokens=200
         )
     elif model in ["qwen-3.5-27b-fp8", "qwen-3.5-27b-fp8+RAG"]:
         # Qwen VL model via OpenAI-compatible API
@@ -237,7 +237,12 @@ def run_inference(model, overwrite_answers=False):
             )
         else:
             raise ValueError(f"Invalid model: {model}")
-        response = run_thread(model, question, image_path, context)
+        try:
+            response = run_thread(model, question, image_path, context)
+        except Exception as e:
+            print(f"Error: {e}")
+            print(f"Question: {question}")
+            response = " "
 
         questions_pd.at[i, "model_prediction"] = response
         questions_pd.to_csv(csv_name, index=False)

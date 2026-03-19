@@ -1,5 +1,6 @@
 import argparse
 import os
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from metrics.metrics import (
     eval_retrieval_qa,
@@ -28,6 +29,39 @@ SUPPORTED_MODELS = [
     "llama-2-70b-chat",
     "llava-13b",
 ]
+
+
+def run_inference_parallel(model, overwrite, max_workers=5):
+    """Run all inference tasks in parallel using ThreadPoolExecutor."""
+
+    if "RAG" in model and not os.path.exists("index"):
+        print("Creating RAG index before parallel execution...")
+        from eval.rule_compliance.dimension_evaluation import create_index
+
+        index = create_index()
+        index.storage_context.persist("index")
+        print("RAG index created.")
+
+    tasks = [
+        ("extraction (retrieval + compilation)", run_extraction),
+        ("definition", run_definition),
+        ("presence", run_presence),
+        ("dimension", run_dimension),
+        ("functional performance", run_functional),
+    ]
+
+    with ThreadPoolExecutor(max_workers=max_workers) as executor:
+        future_to_task = {
+            executor.submit(fn, model, overwrite): name for name, fn in tasks
+        }
+
+        for future in as_completed(future_to_task):
+            task_name = future_to_task[future]
+            try:
+                future.result()
+                print(f"[OK] {task_name} completed")
+            except Exception as e:
+                print(f"[FAIL] {task_name} failed: {e}")
 
 
 def get_csv_path(task, model, question_type=None):
@@ -67,6 +101,17 @@ def main():
         "--skip-inference",
         action="store_true",
         help="Skip inference step and only score existing CSVs",
+    )
+    parser.add_argument(
+        "--parallel",
+        action="store_true",
+        help="Run inference tasks in parallel (default: sequential)",
+    )
+    parser.add_argument(
+        "--max-workers",
+        type=int,
+        default=5,
+        help="Maximum number of parallel workers for inference (default: 5)",
     )
     parser.add_argument(
         "--path_to_retrieval",
@@ -146,20 +191,26 @@ def main():
     if args.model and not args.skip_inference:
         print(f"\n=== Running inference with model: {args.model} ===\n")
 
-        print("Extraction (retrieval + compilation)...")
-        run_extraction(args.model, args.overwrite)
+        if args.parallel:
+            print(
+                f"Running inference in parallel (max_workers={args.max_workers})...\n"
+            )
+            run_inference_parallel(args.model, args.overwrite, args.max_workers)
+        else:
+            print("Extraction (retrieval + compilation)...")
+            run_extraction(args.model, args.overwrite)
 
-        print("Definition evaluation...")
-        run_definition(args.model, args.overwrite)
+            print("Definition evaluation...")
+            run_definition(args.model, args.overwrite)
 
-        print("Presence evaluation...")
-        run_presence(args.model, args.overwrite)
+            print("Presence evaluation...")
+            run_presence(args.model, args.overwrite)
 
-        print("Dimension evaluation...")
-        run_dimension(args.model, args.overwrite)
+            print("Dimension evaluation...")
+            run_dimension(args.model, args.overwrite)
 
-        print("Functional performance evaluation...")
-        run_functional(args.model, args.overwrite)
+            print("Functional performance evaluation...")
+            run_functional(args.model, args.overwrite)
 
     print("\n=== Scoring results ===\n")
 

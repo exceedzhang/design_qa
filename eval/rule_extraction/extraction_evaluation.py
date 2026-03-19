@@ -69,7 +69,8 @@ def run_thread(model, question, context):
             messages=[{"role": "user", "content": question_with_context}],
             max_tokens=250,
         )
-        return response.choices[0].message.content or ""
+        message = response.choices[0].message
+        return (message.content or message.reasoning_content or "").strip()
 
     if model == "llama-2-70b-chat":
         os.environ["REPLICATE_API_TOKEN"] = ""
@@ -149,7 +150,7 @@ def create_index():
     # embedding_model = OpenAIEmbedding(model='text-embedding-3-large')
     # index = VectorStoreIndex.from_documents(text_documents, embed_model=embedding_model)
 
-    index.storage_context.persist(f"index-{chunk_size}")
+    index.storage_context.persist("index")
     return index
 
 
