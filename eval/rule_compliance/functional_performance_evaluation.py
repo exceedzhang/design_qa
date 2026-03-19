@@ -77,9 +77,9 @@ def call_qwen_vlm(question, image_path, base_url, api_key):
             }
         ],
         max_tokens=1500,
+        extra_body={"chat_template_kwargs": {"enable_thinking": False}},
     )
-    msg = response.choices[0].message
-    return msg.content or msg.reasoning_content or ""
+    return response.choices[0].message.content or ""
 
 
 def run_thread(model, question, image_path, context):

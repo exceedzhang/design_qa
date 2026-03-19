@@ -68,9 +68,9 @@ def run_thread(model, question, context):
             model="Qwen/Qwen3.5-27B-FP8",
             messages=[{"role": "user", "content": question_with_context}],
             max_tokens=2000,
+            extra_body={"chat_template_kwargs": {"enable_thinking": False}},
         )
-        message = response.choices[0].message
-        return (message.content or message.reasoning_content or "").strip()
+        return response.choices[0].message.content or ""
 
     if model == "llama-2-70b-chat":
         os.environ["REPLICATE_API_TOKEN"] = ""

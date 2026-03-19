@@ -181,7 +181,7 @@ def score_rouge(target, prediction):
 # Retrieval QAs will be scored using F1 on bag of words
 def eval_retrieval_qa(results_csv):
     """
-    :param results_csv: the csv should contain the results from running the QA through a model.
+    :param results_csv: the csv should contain the results from the QA through a model.
     it should have a column called "model_prediction" and another called "ground_truth" with corresponding GT
 
     :returns:
@@ -195,7 +195,17 @@ def eval_retrieval_qa(results_csv):
         if pd.isna(prediction) or str(prediction).strip() == "":
             prediction = " "
         prediction_tokens = normalize_answer(str(prediction)).split()
-        ground_truth_tokens = normalize_answer(row["ground_truth"]).split()
+        ground_truth = row["ground_truth"]
+
+        # Remove title from ground truth (first line like "CONFIGURATION\n")
+        # Keep only the actual rule text
+        gt_lines = ground_truth.split("\n")
+        if len(gt_lines) > 1:
+            # Skip the title line and rejoin
+            ground_truth_tokens = normalize_answer("\n".join(gt_lines[1:])).split()
+        else:
+            ground_truth_tokens = normalize_answer(ground_truth).split()
+
         f1_scores.append(token_f1_score(prediction_tokens, ground_truth_tokens))
 
     return mean(f1_scores), f1_scores
