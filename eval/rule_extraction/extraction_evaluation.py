@@ -68,7 +68,13 @@ def run_thread(model, question, context):
             model="Qwen/Qwen3.5-27B-FP8",
             messages=[{"role": "user", "content": question_with_context}],
             max_tokens=2000,
-            extra_body={"chat_template_kwargs": {"enable_thinking": False}},
+            temperature=0.7,
+            top_p=0.8,
+            presence_penalty=1.5,
+            extra_body={
+                "top_k": 20,
+                "chat_template_kwargs": {"enable_thinking": False},
+            },
         )
         return response.choices[0].message.content or ""
 
