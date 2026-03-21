@@ -180,6 +180,7 @@ def retrieve_context(index, question, top_k=10):
 
 def save_results(
     model,
+    question_type,
     macro_avg_accuracy,
     direct_dim_avg,
     scale_bar_avg,
@@ -199,7 +200,6 @@ def save_results(
     print(f"\nMacro avg rogues: {macro_avg_rogues}")
     print(f"\nAll rogues: {all_rogues}")
 
-    # Save results to txt file
     with open(f"dimension_{question_type}_evaluation_{model}.txt", "w") as text_file:
         text_file.write(f"Model: {model}")
         text_file.write(f"\nMacro avg: {macro_avg_accuracy}")
@@ -286,6 +286,7 @@ def run_inference(model, overwrite_answers=False):
 
         save_results(
             model,
+            question_type,
             macro_avg_accuracy,
             direct_dim_avg,
             scale_bar_avg,
