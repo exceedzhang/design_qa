@@ -37,6 +37,21 @@ def encode_image(image_path):
         return base64.b64encode(image_file.read()).decode("utf-8")
 
 
+SYSTEM_PROMPT = """You are a component identification assistant.
+OUTPUT RULES:
+- Respond with ONLY the component name
+- Do NOT provide explanations
+- Do NOT use bullet points
+- Do NOT number your response
+- Single line answer only
+
+Examples:
+User: What component is highlighted?
+Assistant: pedal box
+User: Identify this part
+Assistant: main hoop"""
+
+
 def call_qwen_vlm(question, image_path, base_url, api_key):
     if not base_url or not api_key:
         raise ValueError(
@@ -48,6 +63,7 @@ def call_qwen_vlm(question, image_path, base_url, api_key):
     response = client.chat.completions.create(
         model="Qwen/Qwen3.5-27B-FP8",
         messages=[
+            {"role": "system", "content": SYSTEM_PROMPT},
             {
                 "role": "user",
                 "content": [
@@ -57,7 +73,7 @@ def call_qwen_vlm(question, image_path, base_url, api_key):
                         "image_url": {"url": f"data:image/jpeg;base64,{base64_image}"},
                     },
                 ],
-            }
+            },
         ],
         max_tokens=500,
         temperature=0.7,
