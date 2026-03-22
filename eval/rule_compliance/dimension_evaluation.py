@@ -18,6 +18,68 @@ from openai import OpenAI
 import base64
 
 
+SCALE_BAR_INSTRUCTION = """
+You are an engineering drawing analysis assistant specializing in scale bar measurements.
+
+CRITICAL REQUIREMENTS:
+
+1. READ THE SCALE BAR VALUE
+   - Look at the dimension line at the TOP of the engineering drawing
+   - The labeled number (e.g., "3202.4") represents the actual length in millimeters
+   - You MUST identify this scale bar value before any other measurement
+
+2. SHOW CALCULATION STEPS
+   - Step 1: State the scale bar value you identified
+   - Step 2: Estimate the pixel ratio (how many mm per pixel)
+   - Step 3: Measure the target feature relative to the scale bar
+   - Step 4: Calculate the actual dimension using the ratio
+   - Step 5: Compare with the rule requirement and state compliance
+
+3. RESPONSE FORMAT (MANDATORY)
+   Your response MUST follow this exact format:
+   
+   Explanation: [Your step-by-step calculation and reasoning]
+   Answer: [yes or no only]
+   
+   Do NOT provide any text after "Answer:" except "yes" or "no".
+
+EXAMPLE:
+Question: Rule V.1.2 requires minimum wheelbase of 1525mm.
+Explanation: Step 1: Scale bar = 3202.4mm. Step 2: Wheelbase spans ~60% of total vehicle length. Step 3: 0.60 × 3202.4mm = 1921mm. Step 4: 1921mm > 1525mm. The design complies.
+Answer: yes
+"""
+
+DIRECT_DIMENSION_INSTRUCTION = """
+You are an engineering drawing analysis assistant specializing in reading explicit dimensions.
+
+CRITICAL REQUIREMENTS:
+
+1. READ EXPLICIT DIMENSIONS ONLY
+   - Find dimension values that are DIRECTLY LABELED on the drawing (e.g., "1524.9", "R203.2", "135.24mm")
+   - DO NOT estimate or calculate from scale bar
+   - DO NOT guess dimensions that are not shown
+
+2. SHOW YOUR REASONING
+   - State the labeled dimension value you found
+   - State the rule requirement
+   - Compare the labeled value with the rule
+   - Explain the comparison result
+
+3. RESPONSE FORMAT (MANDATORY)
+   Your response MUST follow this exact format:
+   
+   Explanation: [Your reasoning referencing the labeled dimension]
+   Answer: [yes or no only]
+   
+   Do NOT provide any text after "Answer:" except "yes" or "no".
+
+EXAMPLE:
+Question: Rule V.1.2 requires minimum wheelbase of 1525mm.
+Explanation: The drawing shows a wheelbase dimension of 1524.9mm. Since 1524.9mm is slightly less than the required 1525mm minimum, the design does not comply.
+Answer: no
+"""
+
+
 def get_text_prompts(text_query_path):
     # get prompt dataset
     # text prompt
@@ -61,11 +123,21 @@ def call_qwen_vlm(question, image_path, base_url, api_key):
             "QWEN_BASE_URL and QWEN_API_KEY environment variables must be set "
             "to use qwen-3.5-27b-fp8 model"
         )
+
+    if "use the scale bar" in question.lower():
+        system_instruction = SCALE_BAR_INSTRUCTION
+    else:
+        system_instruction = DIRECT_DIMENSION_INSTRUCTION
+
     client = OpenAI(base_url=base_url, api_key=api_key)
     base64_image = encode_image(image_path)
     response = client.chat.completions.create(
         model="Qwen/Qwen3.5-27B-FP8",
         messages=[
+            {
+                "role": "system",
+                "content": system_instruction,
+            },
             {
                 "role": "user",
                 "content": [
@@ -75,7 +147,7 @@ def call_qwen_vlm(question, image_path, base_url, api_key):
                         "image_url": {"url": f"data:image/jpeg;base64,{base64_image}"},
                     },
                 ],
-            }
+            },
         ],
         max_tokens=1500,
         temperature=0.7,
